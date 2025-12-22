@@ -209,6 +209,7 @@ void calculate_gsr_stress_index(const int32_t *raw_gsr_data, int sample_count,
                         }
                         last_peak_index = j;
                         LOG_DBG("SCR peak %d: amp=%.4f uS", scr_count, (double)amplitude);
+                        k_msleep(10);
                     }
                     i = j;
                     break;
