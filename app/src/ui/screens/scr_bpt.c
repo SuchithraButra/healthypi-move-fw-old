@@ -110,7 +110,7 @@ void draw_scr_bpt(enum scroll_dir m_scroll_dir)
     }
     lv_obj_set_pos(label_bpt_sys, 70, 115);
     lv_obj_set_width(label_bpt_sys, 100);
-    lv_obj_add_style(label_bpt_sys, &style_numeric_large, LV_PART_MAIN);
+    lv_obj_add_style(label_bpt_sys, &style_numeric_medium, LV_PART_MAIN);
     lv_obj_set_style_text_align(label_bpt_sys, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_color(label_bpt_sys, lv_color_white(), LV_PART_MAIN);
 
@@ -131,7 +131,7 @@ void draw_scr_bpt(enum scroll_dir m_scroll_dir)
     }
     lv_obj_set_pos(label_bpt_dia, 220, 115);
     lv_obj_set_width(label_bpt_dia, 100);
-    lv_obj_add_style(label_bpt_dia, &style_numeric_large, LV_PART_MAIN);
+    lv_obj_add_style(label_bpt_dia, &style_numeric_medium, LV_PART_MAIN);
     lv_obj_set_style_text_align(label_bpt_dia, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_color(label_bpt_dia, lv_color_white(), LV_PART_MAIN);
 
