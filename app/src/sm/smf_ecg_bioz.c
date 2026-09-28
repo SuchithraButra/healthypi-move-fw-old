@@ -920,6 +920,81 @@ static void st_ecg_idle_entry(void *o)
             LOG_ERR("Failed to disable BioZ in idle entry: %d", ret);
         }
     }
+}static void st_ecg_idle_run(void *o)
+{
+    // LOG_DBG("ECG/BioZ SM Idle Run");
+    if (k_sem_take(&sem_ecg_start, K_NO_WAIT) == 0)
+    {
+        smf_set_state(SMF_CTX(&s_ecg_obj), &ecg_states[HPI_ECG_STATE_STABILIZING]);
+    }
+    
+    // Handle independent GSR (BioZ) control
+    if (k_sem_take(&sem_gsr_start, K_NO_WAIT) == 0)
+    {
+        LOG_INF("Starting GSR (BioZ) measurement for %d seconds", GSR_MEASUREMENT_DURATION_S);
+        int ret = hw_max30001_gsr_enable();
+        if (ret == 0) {
+            hpi_data_set_gsr_measurement_active(true);
+            gsr_measurement_start_time = k_uptime_get();
+            gsr_measurement_in_progress = true;
+            k_timer_start(&tmr_bioz_sampling, K_MSEC(BIOZ_SAMPLING_INTERVAL_MS), K_MSEC(BIOZ_SAMPLING_INTERVAL_MS));
+            LOG_INF("GSR (BioZ) measurement started successfully");
+        } else {
+            LOG_ERR("Failed to start GSR (BioZ) measurement: %d", ret);
+            gsr_measurement_in_progress = false;
+        }
+    }
+    
+    if (k_sem_take(&sem_gsr_cancel, K_NO_WAIT) == 0)
+    {
+        LOG_INF("Stopping GSR (BioZ) measurement");
+        int ret = hw_max30001_gsr_disable();
+        if (ret == 0) {
+            hpi_data_set_gsr_measurement_active(false);
+            gsr_measurement_in_progress = false;
+            // Only stop bioz timer if ECG is not active
+            if (!get_ecg_active()) {
+                k_timer_stop(&tmr_bioz_sampling);
+            }
+            LOG_INF("GSR (BioZ) measurement stopped successfully");
+        } else {
+            LOG_ERR("Failed to stop GSR (BioZ) measurement: %d", ret);
+        }
+    }
+    
+    // Auto-complete GSR measurement after duration
+    if (gsr_measurement_in_progress) {
+        int64_t elapsed_ms = k_uptime_get() - gsr_measurement_start_time;
+        if (elapsed_ms >= (GSR_MEASUREMENT_DURATION_S * 1000)) {
+            LOG_INF("GSR measurement complete after %d seconds", GSR_MEASUREMENT_DURATION_S);
+            hw_max30001_gsr_disable();
+            hpi_data_set_gsr_measurement_active(false);
+            gsr_measurement_in_progress = false;
+            if (!get_ecg_active()) {
+                k_timer_stop(&tmr_bioz_sampling);
+            }
+            
+            // Return to GSR home screen (no results to display for live view only)
+           // hpi_load_screen(SCR_GSR, SCROLL_DOWN);
+        }
+        else {
+            // Publish status once per second via ZBus
+            uint32_t elapsed_s = elapsed_ms / 1000;
+            if (elapsed_s != gsr_last_status_pub_s && elapsed_s <= GSR_MEASUREMENT_DURATION_S) {
+                gsr_last_status_pub_s = elapsed_s;
+#if defined(CONFIG_HPI_GSR_SCREEN)
+                struct hpi_gsr_status_t gsr_status = {
+                    .elapsed_s = (uint16_t)elapsed_s,
+                    .remaining_s = (uint16_t)((elapsed_s < GSR_MEASUREMENT_DURATION_S) ? (GSR_MEASUREMENT_DURATION_S - elapsed_s) : 0),
+                    .total_s = GSR_MEASUREMENT_DURATION_S,
+                    .active = true,
+                };
+                extern const struct zbus_channel gsr_status_chan;
+                zbus_chan_pub(&gsr_status_chan, &gsr_status, K_NO_WAIT);
+#endif
+            }
+        }
+    }
 
     // Reset ECG state flags
     hpi_data_set_ecg_record_active(false);
@@ -1328,7 +1403,16 @@ static void st_ecg_stabilizing_entry(void *o)
     // Initialize stabilization countdown
     set_ecg_stabilization_values(ECG_STABILIZATION_DURATION_S, false);
     set_ecg_timer_values(k_uptime_get_32(), 0);
-
+    
+     // Initialize HRV if evaluation is being started
+    //  if (get_hrv_active()) {
+    //      LOG_INF("HRV evaluation starting - initializing HRV data collection");
+    //      hpi_data_set_hrv_eval_active(true);
+    //      hrv_interval_count = 0;
+    //      memset(hrv_intervals, 0, sizeof(hrv_intervals));
+    //      hrv_last_status_pub_s = 0;
+    //  }
+ 
     // Lead tracking - leads are ON when entering stabilizing
     smf_last_lead_off = false;
 
@@ -1336,7 +1420,8 @@ static void st_ecg_stabilizing_entry(void *o)
     k_event_post(&ecg_evt, EVT_ECG_LEAD_ON);
 
     // Publish status
-    int duration = ECG_RECORD_DURATION_S;
+    int duration = is_recording_active ? ECG_RECORD_DURATION_S : HRV_MEASUREMENT_DURATION_S;
+    // Publish status indicating stabilization phase
     struct hpi_ecg_status_t ecg_stat = {
         .ts_complete = 0,
         .status = HPI_ECG_STATUS_STREAMING,

@@ -88,6 +88,7 @@ K_MSGQ_DEFINE(q_disp_boot_msg, sizeof(struct hpi_boot_msg_t), 4, 1);
 K_SEM_DEFINE(sem_disp_ready, 0, 1);
 K_SEM_DEFINE(sem_touch_wakeup, 0, 1);  // Kept for wakeup signaling
 
+
 /**
  * @brief Signal touch wakeup from sleep state
  * Called by input drivers (touch controller) when touch is detected.
@@ -240,6 +241,9 @@ static int m_disp_gsr_sleep_synced = -1;
 
 
 
+// SPO2 and BPT semaphores
+extern struct k_sem sem_finger_contact_off;
+extern struct k_sem sem_finger_contact_on;
 struct s_disp_object
 {
     struct smf_ctx ctx;
@@ -308,6 +312,12 @@ static const screen_func_table_entry_t screen_func_table[] = {
     [SCR_SPL_FI_SENS_CHECK] = {draw_scr_fi_sens_check, gesture_down_scr_fi_sens_check},
     [SCR_SPL_BPT_MEASURE] = {draw_scr_bpt_measure, gesture_down_scr_bpt_measure},
     [SCR_SPL_BPT_CAL_COMPLETE] = {draw_scr_bpt_cal_complete, gesture_down_scr_bpt_cal_complete},
+    [SCR_SPL_ECG_COMPLETE] = {draw_scr_ecg_complete, gesture_down_scr_ecg_complete},
+  //  [SCR_SPL_PLOT_HRV] = {draw_scr_hrv, NULL},
+    [SCR_SPL_HRV_EVAL_PROGRESS] = {draw_scr_spl_hrv_eval_progress, gesture_down_scr_spl_hrv_eval_progress},
+    [SCR_SPL_HRV_COMPLETE] = {draw_scr_spl_hrv_complete, gesture_down_scr_spl_hrv_complete},
+    //[SCR_SPL_HR_SCR2] = { draw_scr_hr_scr2, gesture_down_scr_hr_scr2 },
+    [SCR_SPL_SPO2_SCR2] = {draw_scr_spo2_scr2, gesture_down_scr_spo2_scr2},
     [SCR_SPL_SPO2_MEASURE] = {draw_scr_spo2_measure, gesture_down_scr_spo2_measure},
     [SCR_SPL_SPO2_RESULT] = {draw_scr_spo2_result, gesture_down_scr_spo2_result},   /* P6 pilot */
     [SCR_SPL_GSR_COMPLETE] = {draw_scr_gsr_complete, gesture_down_scr_gsr_complete},
@@ -964,7 +974,6 @@ static void hpi_disp_process_ppg_wr_data(struct hpi_ppg_wr_data_t ppg_sensor_sam
             hpi_wave_monitor_push_auto(g_hr_wave, (int32_t)ppg_sensor_sample.raw_green[i]);
         }
     }
-
     if (hpi_disp_get_curr_screen() == SCR_SPL_SPO2_MEASURE )
     {
         lv_disp_trig_activity(NULL);
@@ -1100,6 +1109,56 @@ static void hpi_disp_update_screens(void)
             hpi_disp_show_toast("Measurement cancelled\nNo finger detected", 3000);
         }
         break;
+    case SCR_TEMP:
+        if (k_uptime_get_32() - last_temp_trend_refresh > HPI_DISP_TEMP_REFRESH_INT)
+        {
+            if (m_disp_temp > 0)
+            {
+                hpi_temp_disp_update_temp_f((double)m_disp_temp, m_disp_temp_updated_ts);
+            }
+            last_temp_trend_refresh = k_uptime_get_32();
+        }
+        break;
+    case SCR_GSR:
+#if defined(CONFIG_HPI_GSR_SCREEN)
+        if (k_uptime_get_32() - last_temp_trend_refresh > HPI_DISP_TEMP_REFRESH_INT)
+        {
+            uint16_t gsr_value = 0;
+            int64_t gsr_last_update = 0;
+            if (hpi_sys_get_last_gsr_update(&gsr_value, &gsr_last_update) == 0 && gsr_value > 0)
+            {
+                // Use integer-only function for flash optimization
+                hpi_gsr_disp_update_gsr_int(gsr_value, gsr_last_update);
+            }
+            last_temp_trend_refresh = k_uptime_get_32();
+        }
+#endif
+        break;
+    case SCR_HR:
+        if (m_disp_hr > 0)
+        {
+            hpi_disp_hr_update_hr(m_disp_hr, m_disp_hr_updated_ts);
+        }
+        last_hr_trend_refresh = k_uptime_get_32();
+        break;
+    case SCR_SPL_HR_SCR2:
+        if ((k_uptime_get_32() - last_hr_trend_refresh) > HPI_DISP_TRENDS_REFRESH_INT)
+        {
+            // hpi_disp_hr_load_trend();
+            last_hr_trend_refresh = k_uptime_get_32();
+        }
+        break;
+    case SCR_SPO2:
+        if ((k_uptime_get_32() - last_spo2_trend_refresh) > HPI_DISP_TRENDS_REFRESH_INT)
+        {
+            // hpi_disp_update_spo2(m_disp_spo2, m_disp_spo2_last_refresh_tm);
+            // hpi_disp_spo2_load_trend();
+            last_spo2_trend_refresh = k_uptime_get_32();
+        }
+        break;
+    case SCR_BPT:
+        
+        break;
     case SCR_SPL_BPT_CAL_PROGRESS:
          if(hpi_evt_consume(&fi_evt, EVT_FI_BPT_CAL_CANCEL))
          {
@@ -1119,7 +1178,113 @@ static void hpi_disp_update_screens(void)
          }        
         lv_disp_trig_activity(NULL);
         break;
-    /* SCR_SPL_ECG_SCR2 and SCR_SPL_RAW_PPG removed (legacy full-screen plots). */
+    case SCR_SPL_ECG_SCR2:
+        hpi_ecg_disp_update_hr(m_disp_ecg_hr);
+        hpi_ecg_disp_update_timer(m_disp_ecg_timer);
+        if (k_sem_take(&sem_ecg_complete, K_NO_WAIT) == 0)
+        {
+            hpi_load_scr_spl(SCR_SPL_ECG_COMPLETE, SCROLL_DOWN, SCR_SPL_PLOT_ECG, 0, 0, 0);
+        }
+        if (k_sem_take(&sem_ecg_lead_on, K_NO_WAIT) == 0)
+        {
+            LOG_INF("DISPLAY THREAD: Processing ECG Lead ON semaphore - calling UI handler");
+            scr_ecg_lead_on_off_handler(false); // false = leads ON
+            
+            // Only trigger stabilization if this is a reconnection (previous state was leads OFF)
+            bool is_ecg_active = hpi_data_is_ecg_record_active();
+            bool was_lead_off = m_lead_on_off;  // Previous state before this update
+            
+            m_lead_on_off = false;              // Update to leads ON
+            
+            LOG_INF("DISPLAY THREAD: ECG active=%s, was_lead_off=%s", 
+                    is_ecg_active ? "true" : "false", 
+                    was_lead_off ? "true" : "false");
+            
+            // Only trigger re-stabilization if:
+            // 1. Recording is active AND
+            // 2. This is a reconnection (previous state was lead off)
+            if (is_ecg_active && was_lead_off)
+            {
+                LOG_INF("DISPLAY THREAD: Lead reconnected - triggering stabilization phase");
+                
+                // Signal state machine to enter stabilization before resuming recording
+                k_sem_give(&sem_ecg_lead_on_stabilize);
+            }
+            // Start timer if this is first lead-on (not a reconnection)
+            else if (is_ecg_active && !was_lead_off)
+            {
+                LOG_INF("DISPLAY THREAD: Leads already on - starting timer");
+                hpi_ecg_timer_start();
+            }
+        }
+        if (k_sem_take(&sem_ecg_lead_off, K_NO_WAIT) == 0)
+        {
+            LOG_INF("DISPLAY THREAD: Processing ECG Lead OFF semaphore - calling UI handler");
+            scr_ecg_lead_on_off_handler(true); // true = leads OFF
+            m_lead_on_off = true;              // true = leads OFF
+
+            // Reset recording to ensure continuous 30s data when leads come back on
+            bool is_ecg_active = hpi_data_is_ecg_record_active();
+            LOG_INF("DISPLAY THREAD: ECG record active = %s", is_ecg_active ? "true" : "false");
+            if (is_ecg_active)
+            {
+                LOG_INF("DISPLAY THREAD: Lead disconnected - resetting recording buffer for continuous capture");
+                
+                // Reset the recording buffer without saving incomplete data
+                hpi_data_reset_ecg_record_buffer();
+                
+                // Reset UI timer state
+                LOG_INF("DISPLAY THREAD: Resetting UI timer state");
+                hpi_ecg_timer_reset();
+                
+                // Reset ECG SMF countdown to 30s
+                LOG_INF("DISPLAY THREAD: Resetting ECG SMF countdown to 30s");
+                hpi_ecg_reset_countdown_timer();
+            }
+        }
+
+        lv_disp_trig_activity(NULL);
+
+        break;
+    case SCR_SPL_SPO2_MEASURE:
+        
+         if(k_sem_take(&sem_finger_contact_off, K_NO_WAIT) == 0)
+         {
+            LOG_INF("DISPLAY THREAD: Processing PPG finger Contact off semaphore - calling UI handler");
+            scr_ppg_finger_contact_handler(false);
+
+         }
+         if(k_sem_take(&sem_finger_contact_on, K_NO_WAIT) == 0)
+         {
+            LOG_INF("DISPLAY THREAD: Processing PPG finger Contact on semaphore - calling UI handler");
+            scr_ppg_finger_contact_handler(true);
+         }
+         lv_disp_trig_activity(NULL);
+         break;
+    case SCR_SPL_PLOT_GSR:
+#if defined(CONFIG_HPI_GSR_SCREEN)
+        // Update GSR countdown timer display (mirrors ECG pattern)
+        hpi_gsr_disp_update_timer(m_disp_gsr_remaining);
+#endif
+        lv_disp_trig_activity(NULL);
+        break;
+    case SCR_SPL_RAW_PPG:
+        // Periodically check for signal timeout to show "No Signal" message
+        hpi_ppg_check_signal_timeout();
+        lv_disp_trig_activity(NULL);
+        break;
+    case SCR_SPL_ECG_COMPLETE:
+        if (k_sem_take(&sem_ecg_complete_reset, K_NO_WAIT) == 0)
+        {
+            hpi_load_screen(SCR_ECG, SCROLL_UP);
+        }
+        break;
+    case SCR_SPL_SPO2_COMPLETE:
+        /*if (k_sem_take(&sem_spo2_complete, K_NO_WAIT) == 0)
+        {
+            hpi_disp_update_spo2(m_disp_spo2, m_disp_spo2_last_refresh_ts);
+        }*/
+        break;
     /*case SCR_SPL_FI_SENS_CHECK:
         if (k_sem_take(&sem_bpt_sensor_found, K_NO_WAIT) == 0)
         {

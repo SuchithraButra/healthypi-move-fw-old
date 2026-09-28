@@ -101,9 +101,11 @@ void draw_scr_bpt_cal_required(enum scroll_dir m_scroll_dir, uint32_t arg1, uint
     lv_obj_set_style_text_color(label_bpt_cal_required, lv_color_hex(V2_MUTED), 0);
 
     // BOTTOM ZONE: Action Button (consistent with other screens)
-    btn_ok = hpi_btn_create_secondary(scr_bpt_cal_required);
-    lv_obj_set_size(btn_ok, 160, 56);
-    lv_obj_align(btn_ok, LV_ALIGN_BOTTOM_MID, 0, -30);
+    btn_ok = hpi_btn_create_primary(scr_bpt_cal_required);
+    //lv_obj_add_event_cb(btn_ok, scr_btn_ok_handler, LV_EVENT_ALL, NULL);
+    lv_obj_set_size(btn_ok, 180, 50);  // Standard size matching other screens
+    lv_obj_align(btn_ok, LV_ALIGN_BOTTOM_MID, 0, -30);  // Standard bottom positioning
+    lv_obj_set_style_radius(btn_ok, 25, LV_PART_MAIN);
 
     lv_obj_t *label_btn = lv_label_create(btn_ok);
     lv_label_set_text(label_btn, "OK");

@@ -101,10 +101,11 @@ void draw_scr_bpt_cal_complete(enum scroll_dir m_scroll_dir, uint32_t arg1, uint
     lv_obj_set_style_text_color(label_info, lv_color_hex(V2_MUTED), 0);
 
     // BOTTOM ZONE: Action Button (consistent with other screens)
-    btn_bpt_measure = hpi_btn_create_secondary(scr_bpt_cal_complete);
+    btn_bpt_measure = hpi_btn_create_primary(scr_bpt_cal_complete);
     lv_obj_add_event_cb(btn_bpt_measure, scr_bpt_btn_measure_handler, LV_EVENT_CLICKED, NULL);
-    lv_obj_set_size(btn_bpt_measure, 160, 56);
-    lv_obj_align(btn_bpt_measure, LV_ALIGN_BOTTOM_MID, 0, -30);
+    lv_obj_set_size(btn_bpt_measure, 180, 50);  // Standard size matching other screens
+    lv_obj_align(btn_bpt_measure, LV_ALIGN_BOTTOM_MID, 0, -30);  // Standard bottom positioning
+    lv_obj_set_style_radius(btn_bpt_measure, 25, LV_PART_MAIN);
 
     lv_obj_t *label_btn = lv_label_create(btn_bpt_measure);
     lv_label_set_text(label_btn, "CLOSE");

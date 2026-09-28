@@ -565,9 +565,20 @@ void hpi_load_screen(int m_screen, enum scroll_dir m_scroll_dir)
     case SCR_TEMP:
     case SCR_ECG:
     case SCR_ACTIVITY:
-    case SCR_HRV:
-    case SCR_GSR:
         hpi_carousel_show(m_screen, m_scroll_dir);
+        break;
+    case SCR_ECG:
+        draw_scr_ecg(m_scroll_dir);
+        break;
+    case SCR_HRV:
+        draw_scr_hrv(m_scroll_dir, 0, 0, 0, 0);
+        break;
+    case SCR_GSR:
+#if defined(CONFIG_HPI_GSR_SCREEN)
+        draw_scr_gsr(m_scroll_dir);
+#else
+    printk("GSR screen disabled by config\n");
+#endif
         break;
     default:
         printk("Invalid screen: %d", m_screen);
